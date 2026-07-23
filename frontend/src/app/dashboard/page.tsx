@@ -90,6 +90,9 @@ export default function DashboardPage() {
     email: 'arjun.mehta@gmail.com',
     phone: '+91 98765 43210',
     city: 'Bangalore',
+    budget: 30000,
+    pets_allowed: false,
+    wfh: false,
     notifications: true,
     emailAlerts: true,
     priceDropAlerts: true,
@@ -102,16 +105,82 @@ export default function DashboardPage() {
     const fHandler = () => setSavedFilters(getSavedFilters());
     window.addEventListener('wishlist-updated', wHandler);
     window.addEventListener('saved-filters-updated', fHandler);
+
+    // Fetch profile and preferences
+    const token = localStorage.getItem('auth_token');
+    if (token) {
+      // 1. Fetch user authentication info
+      fetch('http://localhost:8000/user/is_auth', {
+        headers: { 'Authorization': `Bearer ${token}` }
+      })
+      .then(res => res.ok ? res.json() : null)
+      .then(userData => {
+        if (userData) {
+          setProfile(prev => ({
+            ...prev,
+            name: userData.name,
+            email: userData.email,
+          }));
+        }
+      })
+      .catch(err => console.error('Error fetching auth:', err));
+
+      // 2. Fetch user preferences
+      fetch('http://localhost:8000/user/preference', {
+        headers: { 'Authorization': `Bearer ${token}` }
+      })
+      .then(res => res.ok ? res.json() : null)
+      .then(prefData => {
+        if (prefData) {
+          setProfile(prev => ({
+            ...prev,
+            city: prefData.preferred_city || prev.city,
+            budget: prefData.budget || prev.budget,
+            pets_allowed: prefData.pets_allowed,
+            wfh: prefData.wfh,
+          }));
+        }
+      })
+      .catch(err => console.error('Error fetching preferences:', err));
+    }
+
     return () => {
       window.removeEventListener('wishlist-updated', wHandler);
       window.removeEventListener('saved-filters-updated', fHandler);
     };
   }, []);
 
-  const handleSaveProfile = () => {
+  const handleSaveProfile = async () => {
+    const token = localStorage.getItem('auth_token');
+    if (token) {
+      try {
+        const res = await fetch('http://localhost:8000/user/preference', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          },
+          body: JSON.stringify({
+            budget: Number(profile.budget),
+            preferred_city: profile.city,
+            pets_allowed: profile.pets_allowed,
+            wfh: profile.wfh
+          })
+        });
+        if (res.ok) {
+          setProfileSaved(true);
+          setTimeout(() => setProfileSaved(false), 2500);
+        } else {
+          console.error('Failed to save preferences');
+        }
+      } catch (err) {
+        console.error('Error saving preferences:', err);
+      }
+    } else {
+      setProfileSaved(true);
+      setTimeout(() => setProfileSaved(false), 2500);
+    }
     setEditingProfile(false);
-    setProfileSaved(true);
-    setTimeout(() => setProfileSaved(false), 2500);
   };
 
   const confirmedBookings = MOCK_BOOKINGS.filter(b => b.status === 'confirmed').length;
@@ -412,15 +481,17 @@ export default function DashboardPage() {
               )}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {[
-                  { label: 'Full Name', key: 'name' as const },
-                  { label: 'Email Address', key: 'email' as const },
-                  { label: 'Phone Number', key: 'phone' as const },
-                  { label: 'Preferred City', key: 'city' as const },
+                  { label: 'Full Name', key: 'name' as const, type: 'text' },
+                  { label: 'Email Address', key: 'email' as const, type: 'text' },
+                  { label: 'Phone Number', key: 'phone' as const, type: 'text' },
+                  { label: 'Preferred City', key: 'city' as const, type: 'text' },
+                  { label: 'Max Budget (₹)', key: 'budget' as const, type: 'number' },
                 ].map(field => (
                   <div key={field.key}>
                     <label className="text-xs font-medium block mb-1.5" style={{ color: '#9898A0' }}>{field.label}</label>
                     {editingProfile ? (
                       <input
+                        type={field.type}
                         value={profile[field.key]}
                         onChange={e => setProfile(prev => ({ ...prev, [field.key]: e.target.value }))}
                         className="w-full px-3 py-2.5 rounded-xl text-sm outline-none transition-all"
@@ -428,9 +499,33 @@ export default function DashboardPage() {
                       />
                     ) : (
                       <div className="px-3 py-2.5 rounded-xl text-sm" style={{ background: 'rgba(238,238,240,0.04)', border: '1px solid rgba(238,238,240,0.06)', color: '#EEEEF0' }}>
-                        {profile[field.key]}
+                        {field.key === 'budget' ? `₹${Number(profile[field.key]).toLocaleString('en-IN')}` : profile[field.key]}
                       </div>
                     )}
+                  </div>
+                ))}
+              </div>
+
+              {/* Preferences Toggles (Module 1) */}
+              <div className="mt-6 pt-5 grid grid-cols-1 md:grid-cols-2 gap-4" style={{ borderTop: '1px solid rgba(238,238,240,0.06)' }}>
+                {[
+                  { label: 'Pets Allowed', key: 'pets_allowed' as const, desc: 'Requires pet-friendly properties' },
+                  { label: 'Work From Home (WFH)', key: 'wfh' as const, desc: 'Prioritizes high-speed internet' },
+                ].map(toggle => (
+                  <div key={toggle.key} className="flex items-center justify-between p-3 rounded-xl" style={{ background: 'rgba(238,238,240,0.04)', border: '1px solid rgba(238,238,240,0.06)' }}>
+                    <div>
+                      <div className="text-sm font-medium" style={{ color: '#EEEEF0' }}>{toggle.label}</div>
+                      <div className="text-xs mt-0.5" style={{ color: '#9898A0' }}>{toggle.desc}</div>
+                    </div>
+                    <button
+                      disabled={!editingProfile}
+                      onClick={() => setProfile(prev => ({ ...prev, [toggle.key]: !prev[toggle.key] }))}
+                      className="relative w-11 h-6 rounded-full transition-all duration-300 shrink-0 disabled:opacity-50"
+                      style={{ background: profile[toggle.key] ? 'rgba(139,92,246,0.8)' : 'rgba(238,238,240,0.12)' }}
+                    >
+                      <span className="absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-all duration-300"
+                        style={{ left: profile[toggle.key] ? '22px' : '2px' }} />
+                    </button>
                   </div>
                 ))}
               </div>

@@ -1,5 +1,5 @@
 from fastapi import APIRouter , Depends , Request,BackgroundTasks
-from app.user.dtos import RegisterSchema ,LoginSchema,RegisterResponseSchema,VerifyOTPSchema,ResendOTPSchema
+from app.user.dtos import RegisterSchema ,LoginSchema,RegisterResponseSchema,VerifyOTPSchema,ResendOTPSchema,UserPreferenceSchema,GoogleLoginSchema
 from http import HTTPStatus
 from app.utils.db import get_db
 from sqlalchemy.orm import Session
@@ -13,6 +13,21 @@ def register(body:RegisterSchema,
              background_tasks:BackgroundTasks,
              db:Session=Depends(get_db)):
     return controller.register(body,db,background_tasks)
+
+@router.post("/google-login",status_code=HTTPStatus.OK)
+def google_login(body:GoogleLoginSchema,db:Session=Depends(get_db)):
+    return controller.google_login(body,db)
+
+@router.post("/preference",status_code=HTTPStatus.OK)
+def user_preference(request:Request,body:UserPreferenceSchema,db:Session=Depends(get_db)):
+    current_user = controller.is_authenticated(request, db)
+    return controller.preferences(current_user.id,body,db)
+
+@router.get("/preference",status_code=HTTPStatus.OK)
+def get_user_preference(request:Request,db:Session=Depends(get_db)):
+    current_user = controller.is_authenticated(request, db)
+    return controller.get_preferences(current_user.id,db)
+
 
 @router.post("/verify-otp",status_code=HTTPStatus.OK)
 def verify_otp(body:VerifyOTPSchema,db:Session=Depends(get_db)):

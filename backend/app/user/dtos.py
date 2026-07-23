@@ -24,4 +24,13 @@ class VerifyOTPSchema(BaseModel):
 
 class ResendOTPSchema(BaseModel):
     email:str
-    
+
+class UserPreferenceSchema(BaseModel):
+    budget:int
+    preferred_city:str
+    pets_allowed:bool
+    wfh:bool
+
+class GoogleLoginSchema(BaseModel):
+    name: str
+    email: str

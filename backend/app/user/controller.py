@@ -1,7 +1,7 @@
 from passlib.context import CryptContext
 from sqlalchemy.orm import Session
-from app.user.dtos import RegisterSchema,LoginSchema
-from app.user.models import UserModel,OTPVerificationModel
+from app.user.dtos import RegisterSchema,LoginSchema,UserPreferenceSchema,GoogleLoginSchema
+from app.user.models import UserModel,OTPVerificationModel,UserPreferenceModel
 from fastapi import BackgroundTasks,HTTPException,Depends,Request
 from http import HTTPStatus
 from datetime import datetime,timedelta
@@ -15,6 +15,51 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+def preferences(user_id: int, body: UserPreferenceSchema, db: Session):
+    pref = db.query(UserPreferenceModel).filter(UserPreferenceModel.user_id == user_id).first()
+    if not pref:
+        pref = UserPreferenceModel(
+            user_id=user_id,
+            budget=body.budget,
+            preferred_city=body.preferred_city,
+            pets_allowed=body.pets_allowed,
+            wfh=body.wfh
+        )
+        db.add(pref)
+    else:
+        pref.budget = body.budget
+        pref.preferred_city = body.preferred_city
+        pref.pets_allowed = body.pets_allowed
+        pref.wfh = body.wfh
+    
+    db.commit()
+    db.refresh(pref)
+    return {
+        "user_id": pref.user_id,
+        "budget": pref.budget,
+        "preferred_city": pref.preferred_city,
+        "pets_allowed": pref.pets_allowed,
+        "wfh": pref.wfh
+    }
+
+def get_preferences(user_id: int, db: Session):
+    pref = db.query(UserPreferenceModel).filter(UserPreferenceModel.user_id == user_id).first()
+    if not pref:
+        # Return defaults if they haven't set preferences yet
+        return {
+            "user_id": user_id,
+            "budget": 0,
+            "preferred_city": "",
+            "pets_allowed": False,
+            "wfh": False
+        }
+    return {
+        "user_id": pref.user_id,
+        "budget": pref.budget,
+        "preferred_city": pref.preferred_city,
+        "pets_allowed": pref.pets_allowed,
+        "wfh": pref.wfh
+    }
 
 def register(body:RegisterSchema,db:Session,background_tasks:BackgroundTasks):
     is_username=db.query(UserModel).filter(
@@ -71,15 +116,17 @@ def register(body:RegisterSchema,db:Session,background_tasks:BackgroundTasks):
 
 
 
-pwd_context=CryptContext(
-    schemes=["bcrypt"],
-    deprecated="auto"
-)
+import bcrypt
+
 def hash_password(password:str):
-    return pwd_context.hash(password)
+    salt = bcrypt.gensalt()
+    return bcrypt.hashpw(password.encode('utf-8'), salt).decode('utf-8')
 
 def verify_password(password,hashed):
-    return pwd_context.verify(password,hashed)
+    try:
+        return bcrypt.checkpw(password.encode('utf-8'), hashed.encode('utf-8'))
+    except Exception:
+        return False
 
 
 def login(body:LoginSchema,db:Session):
@@ -240,6 +287,38 @@ def resend_otp_code(email: str, background_tasks: BackgroundTasks,db: Session):
 
     background_tasks.add_task(send_otp_email, email, otp)
     return {"message": "OTP resent successfully"}
+
+def google_login(body: GoogleLoginSchema, db: Session):
+    user = db.query(UserModel).filter(UserModel.email == body.email).first()
+    if not user:
+        username = body.email.split('@')[0]
+        is_username = db.query(UserModel).filter(UserModel.username == username).first()
+        if is_username:
+            username = f"{username}{random.randint(10, 99)}"
+            
+        user = UserModel(
+            name=body.name,
+            username=username,
+            email=body.email,
+            hash_password="",
+            is_verified=True
+        )
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+        
+    exp_time = datetime.now() + timedelta(minutes=setting.EXP_TIME)
+    token = jwt.encode(
+        {
+            "id": user.id,
+            "exp": int(exp_time.timestamp())
+        },
+        setting.SECRET_KEY,
+        algorithm=setting.ALGORITHM
+    )
+    return {
+        "token": token
+    }
 
 
 

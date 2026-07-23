@@ -262,6 +262,14 @@ export default function ListingsPage() {
   const [showFilters, setShowFilters] = useState(false);
   const [visibleCards, setVisibleCards] = useState<Set<string>>(new Set());
 
+  // Preferences States (Module 1)
+  const [preferences, setPreferences] = useState<{ budget: number; preferred_city: string; pets_allowed: boolean; wfh: boolean } | null>(null);
+  const [showPreferenceOnboarding, setShowPreferenceOnboarding] = useState(false);
+  const [onboardCity, setOnboardCity] = useState('');
+  const [onboardBudget, setOnboardBudget] = useState(0);
+  const [onboardPets, setOnboardPets] = useState(false);
+  const [onboardWfh, setOnboardWfh] = useState(false);
+
   useEffect(() => {
     const timer = setTimeout(() => {
       const ids = new Set(MOCK_PROPERTIES.map(p => p.id));
@@ -279,12 +287,90 @@ export default function ListingsPage() {
     const freshHandler = () => setFreshIds(new Set(getFreshPropertyIds()));
     window.addEventListener('wishlist-updated', handler);
     window.addEventListener('fresh-properties-updated', freshHandler);
+
+    // Fetch user preferences (Module 1 onboarding and filter sync)
+    const token = localStorage.getItem('auth_token');
+    if (token) {
+      fetch('http://localhost:8000/user/preference', {
+        headers: { 'Authorization': `Bearer ${token}` }
+      })
+      .then(res => res.ok ? res.json() : null)
+      .then(data => {
+        if (data) {
+          setPreferences(data);
+          // If budget is 0 or preferred_city is not set, they are new, show onboarding popup
+          if (data.budget === 0 || !data.preferred_city) {
+            setShowPreferenceOnboarding(true);
+          } else {
+            // Apply saved preferences to listings filter view
+            setSelectedCity(data.preferred_city);
+            setMaxPrice(data.budget);
+            const amenitiesToAdd = [];
+            if (data.pets_allowed) amenitiesToAdd.push('Pet Friendly');
+            if (data.wfh) amenitiesToAdd.push('WiFi');
+            if (amenitiesToAdd.length > 0) {
+              setSelectedAmenities(prev => {
+                const updated = [...prev];
+                amenitiesToAdd.forEach(a => {
+                  if (!updated.push) return;
+                  if (!updated.includes(a)) updated.push(a);
+                });
+                return updated;
+              });
+            }
+          }
+        }
+      })
+      .catch(err => console.error('Failed to load user preferences:', err));
+    }
+
     return () => {
       clearTimeout(timer);
       window.removeEventListener('wishlist-updated', handler);
       window.removeEventListener('fresh-properties-updated', freshHandler);
     };
   }, []);
+
+  const saveOnboardPreferences = async () => {
+    const token = localStorage.getItem('auth_token');
+    if (!token) return;
+    try {
+      const res = await fetch('http://localhost:8000/user/preference', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          budget: onboardBudget,
+          preferred_city: onboardCity,
+          pets_allowed: onboardPets,
+          wfh: onboardWfh
+        })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setPreferences(data);
+        setSelectedCity(data.preferred_city);
+        setMaxPrice(data.budget);
+        const amenitiesToAdd = [];
+        if (data.pets_allowed) amenitiesToAdd.push('Pet Friendly');
+        if (data.wfh) amenitiesToAdd.push('WiFi');
+        
+        setSelectedAmenities(prev => {
+          const updated = [...prev];
+          amenitiesToAdd.forEach(a => {
+            if (!updated.includes(a)) updated.push(a);
+          });
+          return updated;
+        });
+        
+        setShowPreferenceOnboarding(false);
+      }
+    } catch (err) {
+      console.error('Failed to save onboard preferences:', err);
+    }
+  };
 
   const toggleSave = (id: string) => {
     const property = MOCK_PROPERTIES.find(p => p.id === id);
@@ -586,6 +672,98 @@ export default function ListingsPage() {
       </div>
 
       <Footer />
+
+      {/* Onboarding Preferences Modal */}
+      {showPreferenceOnboarding && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-md">
+          <div className="w-full max-w-md p-6 rounded-2xl border border-violet-500/30 bg-[#0F0F12] text-left">
+            <h3 className="text-lg font-bold mb-2 text-white">Customize Your StaySmart Experience</h3>
+            <p className="text-xs mb-5 text-[#9898A0]">
+              To help our AI rank matches and predict fair prices, please share your default preferences.
+            </p>
+            
+            <div className="space-y-4">
+              {/* Preferred City */}
+              <div>
+                <label className="text-xs font-semibold uppercase tracking-wider text-[#9898A0] block mb-1.5">Preferred City</label>
+                <select
+                  value={onboardCity}
+                  onChange={e => setOnboardCity(e.target.value)}
+                  className="w-full px-3 py-2 bg-[#1E1332] border border-[#3A3A45] rounded-xl text-sm text-white outline-none"
+                >
+                  <option value="">Select a City</option>
+                  <option value="Delhi">Delhi</option>
+                  <option value="Mumbai">Mumbai</option>
+                  <option value="Bangalore">Bangalore</option>
+                  <option value="Gurugram">Gurugram</option>
+                  <option value="Noida">Noida</option>
+                </select>
+              </div>
+
+              {/* Max Monthly Budget */}
+              <div>
+                <label className="text-xs font-semibold uppercase tracking-wider text-[#9898A0] block mb-1.5">Max Monthly Budget (₹)</label>
+                <input
+                  type="number"
+                  value={onboardBudget || ''}
+                  onChange={e => setOnboardBudget(Number(e.target.value))}
+                  placeholder="e.g. 30000"
+                  className="w-full px-3 py-2 bg-[#1E1332] border border-[#3A3A45] rounded-xl text-sm text-white outline-none"
+                />
+              </div>
+
+              {/* Switches */}
+              <div className="flex items-center justify-between p-3 bg-white/5 rounded-xl border border-white/5">
+                <div>
+                  <div className="text-sm font-semibold text-white">Pets Allowed</div>
+                  <div className="text-xs text-[#9898A0]">Filter by properties that allow pets</div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setOnboardPets(!onboardPets)}
+                  className="relative w-11 h-6 rounded-full transition-all duration-300 shrink-0"
+                  style={{ background: onboardPets ? 'rgba(139,92,246,0.8)' : 'rgba(238,238,240,0.12)' }}
+                >
+                  <span className="absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-all duration-300"
+                    style={{ left: onboardPets ? '22px' : '2px' }} />
+                </button>
+              </div>
+
+              <div className="flex items-center justify-between p-3 bg-white/5 rounded-xl border border-white/5">
+                <div>
+                  <div className="text-sm font-semibold text-white">Work From Home (WFH)</div>
+                  <div className="text-xs text-[#9898A0]">Prioritize high-speed internet & workspace</div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setOnboardWfh(!onboardWfh)}
+                  className="relative w-11 h-6 rounded-full transition-all duration-300 shrink-0"
+                  style={{ background: onboardWfh ? 'rgba(139,92,246,0.8)' : 'rgba(238,238,240,0.12)' }}
+                >
+                  <span className="absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-all duration-300"
+                    style={{ left: onboardWfh ? '22px' : '2px' }} />
+                </button>
+              </div>
+            </div>
+
+            <div className="mt-6 flex gap-3">
+              <button
+                onClick={() => setShowPreferenceOnboarding(false)}
+                className="flex-1 py-3 border border-white/10 rounded-xl text-xs font-semibold text-[#9898A0] hover:text-white transition-colors"
+              >
+                Skip for now
+              </button>
+              <button
+                onClick={saveOnboardPreferences}
+                disabled={!onboardCity || !onboardBudget}
+                className="flex-1 py-3 bg-[#8B5CF6] text-white rounded-xl text-xs font-semibold hover:bg-[#7c4fdf] transition-colors disabled:opacity-40"
+              >
+                Save preferences
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

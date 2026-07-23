@@ -28,7 +28,26 @@ export default function Header({ onFindMatch }: HeaderProps) {
   const [notifCount, setNotifCount] = useState(0);
   const [notifications, setNotifications] = useState<NotificationMatch[]>([]);
   const [notifOpen, setNotifOpen] = useState(false);
+  const [user, setUser] = useState<{ name: string; username: string; email: string } | null>(null);
   const notifRef = useRef<HTMLDivElement>(null);
+
+  const fetchUserProfile = async (token: string) => {
+    try {
+      const res = await fetch('http://localhost:8000/user/is_auth', {
+        method: 'GET',
+        headers: { 'Authorization': `Bearer ${token}` },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setUser(data);
+      } else {
+        localStorage.removeItem('auth_token');
+        setUser(null);
+      }
+    } catch (err) {
+      console.error('Failed to fetch user profile:', err);
+    }
+  };
 
   useEffect(() => {
     const updateCounts = () => {
@@ -36,12 +55,27 @@ export default function Header({ onFindMatch }: HeaderProps) {
       setNotifCount(getTotalUnreadCount());
       setNotifications(getNotifications());
     };
+    
+    const checkAuth = () => {
+      const token = localStorage.getItem('auth_token');
+      if (token) {
+        fetchUserProfile(token);
+      } else {
+        setUser(null);
+      }
+    };
+
     updateCounts();
+    checkAuth();
+
     window.addEventListener('wishlist-updated', updateCounts);
     window.addEventListener('notifications-updated', updateCounts);
+    window.addEventListener('auth-updated', checkAuth);
+
     return () => {
       window.removeEventListener('wishlist-updated', updateCounts);
       window.removeEventListener('notifications-updated', updateCounts);
+      window.removeEventListener('auth-updated', checkAuth);
     };
   }, []);
 
@@ -62,6 +96,13 @@ export default function Header({ onFindMatch }: HeaderProps) {
       markAllRead();
       setNotifCount(0);
     }
+  };
+
+  const handleSignOut = () => {
+    localStorage.removeItem('auth_token');
+    setUser(null);
+    window.dispatchEvent(new Event('auth-updated'));
+    window.location.href = '/home';
   };
 
   return (
@@ -129,7 +170,7 @@ export default function Header({ onFindMatch }: HeaderProps) {
               </div>
               <div className="max-h-72 overflow-y-auto">
                 {notifications.length === 0 ? (
-                  <div className="px-4 py-6 text-center text-sm" style={{ color: '#9898A0' }}>No new notifications</div>
+                   <div className="px-4 py-6 text-center text-sm" style={{ color: '#9898A0' }}>No new notifications</div>
                 ) : (
                   notifications.map(n => (
                     <Link
@@ -180,12 +221,29 @@ export default function Header({ onFindMatch }: HeaderProps) {
         </Link>
 
         {/* Auth buttons */}
-        <Link href="/login" className="hidden md:block text-sm font-medium px-4 py-2 rounded-lg transition-all duration-200" style={{ color: '#9898A0' }}>
-          Sign In
-        </Link>
-        <Link href="/signup" className="hidden md:block btn-violet text-sm px-4 py-2 rounded-lg">
-          Sign Up
-        </Link>
+        {user ? (
+          <div className="hidden md:flex items-center gap-4">
+            <span className="text-sm font-medium" style={{ color: '#EEEEF0' }}>
+              Hi, {user.name}
+            </span>
+            <button
+              onClick={handleSignOut}
+              className="text-sm font-medium px-4 py-2 rounded-lg transition-all duration-200"
+              style={{ color: '#9898A0', background: 'rgba(238,238,240,0.06)' }}
+            >
+              Sign Out
+            </button>
+          </div>
+        ) : (
+          <>
+            <Link href="/login" className="hidden md:block text-sm font-medium px-4 py-2 rounded-lg transition-all duration-200" style={{ color: '#9898A0' }}>
+              Sign In
+            </Link>
+            <Link href="/signup" className="hidden md:block btn-violet text-sm px-4 py-2 rounded-lg">
+              Sign Up
+            </Link>
+          </>
+        )}
 
         <button
           onClick={onFindMatch}
@@ -227,14 +285,29 @@ export default function Header({ onFindMatch }: HeaderProps) {
               )}
             </Link>
           ))}
-          <div className="flex gap-2 mt-1">
-            <Link href="/login" onClick={() => setMobileOpen(false)} className="flex-1 text-center py-2.5 rounded-xl text-sm font-medium" style={{ background: 'rgba(238,238,240,0.06)', color: '#9898A0' }}>
-              Sign In
-            </Link>
-            <Link href="/signup" onClick={() => setMobileOpen(false)} className="flex-1 text-center btn-violet py-2.5 rounded-xl text-sm font-semibold">
-              Sign Up
-            </Link>
-          </div>
+          {user ? (
+            <div className="flex flex-col gap-2 mt-1">
+              <div className="text-center py-2 text-sm font-medium" style={{ color: '#EEEEF0' }}>
+                Logged in as: {user.name}
+              </div>
+              <button
+                onClick={() => { handleSignOut(); setMobileOpen(false); }}
+                className="w-full text-center py-2.5 rounded-xl text-sm font-semibold"
+                style={{ background: 'rgba(239,68,68,0.1)', color: '#FCA5A5', border: '1px solid rgba(239,68,68,0.2)' }}
+              >
+                Sign Out
+              </button>
+            </div>
+          ) : (
+            <div className="flex gap-2 mt-1">
+              <Link href="/login" onClick={() => setMobileOpen(false)} className="flex-1 text-center py-2.5 rounded-xl text-sm font-medium" style={{ background: 'rgba(238,238,240,0.06)', color: '#9898A0' }}>
+                Sign In
+              </Link>
+              <Link href="/signup" onClick={() => setMobileOpen(false)} className="flex-1 text-center btn-violet py-2.5 rounded-xl text-sm font-semibold">
+                Sign Up
+              </Link>
+            </div>
+          )}
           <button
             onClick={() => { onFindMatch(); setMobileOpen(false); }}
             className="btn-violet text-sm px-5 py-3 rounded-xl mt-1"
